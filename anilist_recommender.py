@@ -334,16 +334,16 @@ x = user_df.drop(["user_score"], axis=1)
 y = user_df["user_score"]
 # oversample = RandomOverSampler(sampling_strategy="not majority", random_state=24)
 # x_over, y_over = oversample.fit_resample(x, y)
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=24)
+# x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=24)
 
 print("Training Model...")
-classifier = LinearRegression()
-classifier.fit(x_train, y_train)
+classifier = LinearRegression(fit_intercept=True)
+classifier.fit(x, y)
 
-cv = KFold(n_splits=10, shuffle=True, random_state=24)
-scores = cross_val_score(classifier, x, y, scoring='r2', cv=cv)
-print(f"Average Model Accuracy: {np.mean(scores)}")
-print(f"Current Model Test Accuracy: {classifier.score(x_test, y_test)}")
+# cv = KFold(n_splits=10, shuffle=True, random_state=24)
+# scores = cross_val_score(classifier, x, y, scoring='r2', cv=cv)
+# print(f"Average Model Accuracy: {np.mean(scores)}")
+# rint(f"Current Model Test Accuracy: {classifier.score(x_test, y_test)}")
 
 print("Processing Season Data...")
 season_list = user_data_handler.fetch_season_list(year, season)
@@ -358,11 +358,13 @@ season_predictions = classifier.predict(season_df.drop(["user_score"], axis=1))
 season_predictions_df = pd.DataFrame(np.round(season_predictions), columns=["score"])
 season_predictions_df = pd.concat([season_info_df, season_predictions_df], join="inner", axis=1)
 season_predictions_df["community"] = season_df["community_score"]
+season_predictions_df = season_predictions_df[(season_predictions_df["score"] > 50) & (season_predictions_df["community"] > 65)]
 season_predictions_df = season_predictions_df.sort_values(by=["score"], ascending=False)
 season_predictions_df["score"] = season_predictions_df["score"].apply(lambda x: str(int(x)) + "%")
-
 completed_titles = [entry["media"]["title"]["romaji"] for entry in completed_list["entries"]]
 season_predictions_df = season_predictions_df[~season_predictions_df["title"].isin(completed_titles)]
+season_predictions_df.reset_index(drop=True, inplace=True)
+season_predictions_df.index += 1
 
 def path_to_image_html(path):
     return '<img src="'+ path + '" width="60" >'

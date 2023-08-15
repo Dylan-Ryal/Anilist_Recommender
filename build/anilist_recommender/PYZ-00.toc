@@ -1,5 +1,5 @@
 ('C:\\Users\\Dylan\\Jupyter '
- 'Notebook\\Anilist_Recommender_Python\\build\\anilist_recommender\\PYZ-00.pyz',
+ 'Notebook\\Anilist_Recommender_Python\\anilist_recommender\\build\\anilist_recommender\\PYZ-00.pyz',
  [('IPython',
    'C:\\Users\\Dylan\\AppData\\Roaming\\Python\\Python311\\site-packages\\IPython\\__init__.py',
    'PYMODULE'),
