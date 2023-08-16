@@ -2,11 +2,6 @@ import requests
 import os
 import numpy as np
 import pandas as pd
-from imblearn.over_sampling import RandomOverSampler
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
-from sklearn.model_selection import cross_val_score
-from sklearn.utils import shuffle
 from sklearn.linear_model import LinearRegression
 from IPython.core.display import HTML
 
@@ -85,7 +80,6 @@ class DataHandler:
             return data['data']['MediaListCollection']['lists']
 
         def handleError(error):
-            # You can handle the error here
             print("Error:", error)
 
         try:
@@ -205,8 +199,9 @@ class DataHandler:
             staff_scores = []
             all_staff = entry['staff']['edges'] if is_media_list else entry['media']['staff']['edges']
             for staff in all_staff:
-                staff_id = staff['node']['id']
-                staff_scores.append(self.all_staff[staff_id] if staff_id in self.all_staff else default_staff_value)
+                if staff["role"] in ["Director", "Series Composition", "Character Design", "Music", "Art Director"]:
+                    staff_id = staff['node']['id']
+                    staff_scores.append(self.all_staff[staff_id] if staff_id in self.all_staff else default_staff_value)
             if len(staff_scores) != 0:
                 input_data.append(np.mean(staff_scores))
             else:
@@ -248,12 +243,13 @@ class DataHandler:
                     self.studios[studio['name']] = {'count': 1, 'total': entry['scoreRaw']}
 
             for staff in entry['media']['staff']['edges']:
-                staff_id = staff['node']['id']
-                if staff_id in self.all_staff:
-                    self.all_staff[staff_id]['count'] += 1
-                    self.all_staff[staff_id]['total'] += entry['scoreRaw']
-                else:
-                    self.all_staff[staff_id] = {'count': 1, 'total': entry['scoreRaw']}
+                if staff["role"] in ["Director", "Series Composition", "Character Design", "Music", "Art Director"]:
+                    staff_id = staff['node']['id']
+                    if staff_id in self.all_staff:
+                        self.all_staff[staff_id]['count'] += 1
+                        self.all_staff[staff_id]['total'] += entry['scoreRaw']
+                    else:
+                        self.all_staff[staff_id] = {'count': 1, 'total': entry['scoreRaw']}
     
     def average_data(self):
         genre_values = []
@@ -295,23 +291,28 @@ while valid_year == False:
     year = input("Enter a year: ")
     if year.isdigit() == False:
         print("Invalid Year: Not an Integer")
-        valid_year = False
         continue
     elif int(year) < 1940:
         print("Invalid Year: Out of Range")
-        valid_year = False
         continue
     valid_year = True
 
 valid_seasons = ["WINTER", "SPRING", "SUMMER", "FALL"]
 valid_season = False
 while valid_season == False:
-    season = input("Enter a season (Winter, Spring, Summer or Fall): ").upper()
-    if season not in valid_seasons:
-        print("Invalid Season: Please enter either Winter, Spring, Summer or Fall")
-        valid_season = False
+    season = input("Enter a season (Winter, Spring, Summer, Fall or All): ").upper()
+    if season not in valid_seasons and season != "ALL":
+        print("Invalid Season: Please enter either Winter, Spring, Summer, Fall or All")
         continue
     valid_season = True
+
+valid_include = False
+while valid_include == False:
+    include_dropped = input("Include dropped shows? Enter Yes or No: ").upper()
+    if include_dropped != "YES" and include_dropped != "NO":
+        print("Invalide Input: Please enter Yes or No")
+        continue
+    valid_include = True
 
 print("Processing User Data...")
 user_data_handler = DataHandler(username)
@@ -328,41 +329,61 @@ data_array = [entry["inputData"] for entry in data]
 user_df = pd.DataFrame(data_array, columns=["genre", "studio", "tags", "staff", "community_score", "user_score"])
 user_df = user_df.query("user_score != 0")
 user_df["community_score"].fillna(65, inplace=True)
-user_df = shuffle(user_df, random_state=24)
 
 x = user_df.drop(["user_score"], axis=1)
 y = user_df["user_score"]
-# oversample = RandomOverSampler(sampling_strategy="not majority", random_state=24)
-# x_over, y_over = oversample.fit_resample(x, y)
-# x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=24)
 
 print("Training Model...")
 classifier = LinearRegression(fit_intercept=True)
 classifier.fit(x, y)
+y_pred = classifier.predict(x)
+y_mean = np.mean(y_pred)
 
-# cv = KFold(n_splits=10, shuffle=True, random_state=24)
-# scores = cross_val_score(classifier, x, y, scoring='r2', cv=cv)
-# print(f"Average Model Accuracy: {np.mean(scores)}")
-# rint(f"Current Model Test Accuracy: {classifier.score(x_test, y_test)}")
+def season_dataframe(season):
+    print("Processing Season Data...")
+    season_list = user_data_handler.fetch_season_list(year, season)
+    season_data = user_data_handler.create_data_array(season_list["media"], True)
+    season_data_array = [entry["inputData"] for entry in season_data]
+    season_df = pd.DataFrame(season_data_array, columns=["genre", "studio", "tags", "staff", "community_score", "user_score"])
+    season_df["community_score"].fillna(65, inplace=True)
+    season_info_df = pd.DataFrame([[entry["additionalData"]["title"], entry["additionalData"]["image"]] for entry in season_data], columns=["title", "image"])
+    return season_df, season_info_df
 
-print("Processing Season Data...")
-season_list = user_data_handler.fetch_season_list(year, season)
-season_data = user_data_handler.create_data_array(season_list["media"], True)
-season_data_array = [entry["inputData"] for entry in season_data]
-season_df = pd.DataFrame(season_data_array, columns=["genre", "studio", "tags", "staff", "community_score", "user_score"])
-season_df["community_score"].fillna(65, inplace=True)
-season_info_df = pd.DataFrame([[entry["additionalData"]["title"], entry["additionalData"]["image"]] for entry in season_data], columns=["title", "image"])
+season_df = pd.DataFrame(columns=["genre", "studio", "tags", "staff", "community_score", "user_score"])
+season_info_df = pd.DataFrame(columns=["title", "image"])
+if season == "ALL":
+    for a_season in valid_seasons:
+        a_season_df, a_season_info_df = season_dataframe(a_season)
+        season_df = pd.concat([season_df, a_season_df], axis=0)
+        season_info_df = pd.concat([season_info_df, a_season_info_df], axis=0)
+    season_df.reset_index(drop=True, inplace=True)
+    season_info_df.reset_index(drop=True, inplace=True)
+else:
+    season_df, season_info_df = season_dataframe(season)
 
 print("Making Predictions...")
 season_predictions = classifier.predict(season_df.drop(["user_score"], axis=1))
 season_predictions_df = pd.DataFrame(np.round(season_predictions), columns=["score"])
 season_predictions_df = pd.concat([season_info_df, season_predictions_df], join="inner", axis=1)
 season_predictions_df["community"] = season_df["community_score"]
-season_predictions_df = season_predictions_df[(season_predictions_df["score"] > 50) & (season_predictions_df["community"] > 65)]
 season_predictions_df = season_predictions_df.sort_values(by=["score"], ascending=False)
+
+season_predictions_df["score"] = ((season_predictions_df["score"] - y_mean + 25) / 50) * 100
+season_predictions_df = season_predictions_df[season_predictions_df["community"] >= 65]
+season_predictions_df["score"] = season_predictions_df["score"].apply(lambda x: x if x <= 100.0 else 100.0)
+season_predictions_df["score"] = season_predictions_df["score"].apply(lambda x: x if x >= 0.0 else 0.0)
 season_predictions_df["score"] = season_predictions_df["score"].apply(lambda x: str(int(x)) + "%")
+
+    
 completed_titles = [entry["media"]["title"]["romaji"] for entry in completed_list["entries"]]
-season_predictions_df = season_predictions_df[~season_predictions_df["title"].isin(completed_titles)]
+if include_dropped == "YES":
+    season_predictions_df = season_predictions_df[(~season_predictions_df["title"].isin(completed_titles))]
+else:
+    dropped_list = filter(lambda list_: list_["name"] == "Dropped", user_lists)
+    dropped_list = list(dropped_list)[0]
+    dropped_titles = [entry["media"]["title"]["romaji"] for entry in dropped_list["entries"]]
+    season_predictions_df = season_predictions_df[(~season_predictions_df["title"].isin(completed_titles)) & (~season_predictions_df["title"].isin(dropped_titles))]
+
 season_predictions_df.reset_index(drop=True, inplace=True)
 season_predictions_df.index += 1
 
@@ -379,7 +400,7 @@ for image_col in image_cols:
 html = HTML(season_predictions_df.to_html(escape=False ,formatters=format_dict))
 if not os.path.exists("Predictions"):
     os.mkdir("Predictions")
-html_file = ".\\Predictions\\" + username + "_" + season + "_" + year + ".html"
+html_file = ".\\Predictions\\" + username + "_" + year + "_" + season + ".html"
 with open(html_file, 'w', encoding="utf-8") as f:
     f.write(html.data)
     print(f"HTML File Generated! {html_file}")
