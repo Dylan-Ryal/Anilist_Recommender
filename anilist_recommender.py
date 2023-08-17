@@ -188,11 +188,13 @@ class DataHandler:
 
             tag_scores = []
             tags = entry['tags'] if is_media_list else entry['media']['tags']
-            top_tags = [tag for tag in tags if tag['rank'] >= 66]
+            top_tags = [tag for tag in tags if tag['rank'] >= 0]
+            total_rank = 0
             for tag in top_tags:
-                tag_scores.append(self.tags[tag['name']] if tag['name'] in self.tags else default_tag_value)
+                    tag_scores.append(self.tags[tag['name']] * tag['rank'] if tag['name'] in self.tags else default_tag_value)
+                    total_rank += tag["rank"]
             if len(tag_scores) != 0:
-                input_data.append(np.mean(tag_scores))
+                input_data.append(np.sum(tag_scores) / total_rank)
             else:
                 input_data.append(default_tag_value)
 
@@ -227,12 +229,13 @@ class DataHandler:
                 else:
                     self.genres[genre] = {'count': 1, 'total': entry['scoreRaw']}
 
-            for tag in entry['media']['tags']:
-                if tag['name'] in self.tags:
-                    self.tags[tag['name']]['count'] += 1
-                    self.tags[tag['name']]['total'] += entry['scoreRaw']
-                else:
-                    self.tags[tag['name']] = {'count': 1, 'total': entry['scoreRaw']}
+            top_tags = [tag for tag in entry['media']['tags'] if tag['rank'] >= 0]
+            for tag in top_tags:
+                    if tag['name'] in self.tags:
+                        self.tags[tag['name']]['rank'] += tag["rank"]
+                        self.tags[tag['name']]['total'] += entry['scoreRaw'] * tag["rank"]
+                    else:
+                        self.tags[tag['name']] = {'rank': tag["rank"], 'total': entry['scoreRaw'] * tag["rank"]}
 
             ani_studios = [studio for studio in entry['media']['studios']['nodes'] if studio['isAnimationStudio']]
             for studio in ani_studios:
@@ -260,7 +263,7 @@ class DataHandler:
 
         tag_values = []
         for key, value in self.tags.items():
-            self.tags[key] = value['total'] / value['count']
+            self.tags[key] = value['total'] / value['rank']
             tag_values.append(self.tags[key])
         default_tag_value = np.mean(tag_values)
 
@@ -336,8 +339,6 @@ y = user_df["user_score"]
 print("Training Model...")
 classifier = LinearRegression(fit_intercept=True)
 classifier.fit(x, y)
-y_pred = classifier.predict(x)
-y_mean = np.mean(y_pred)
 
 def season_dataframe(season):
     print("Processing Season Data...")
@@ -367,8 +368,8 @@ season_predictions_df = pd.DataFrame(np.round(season_predictions), columns=["sco
 season_predictions_df = pd.concat([season_info_df, season_predictions_df], join="inner", axis=1)
 season_predictions_df["community"] = season_df["community_score"]
 season_predictions_df = season_predictions_df.sort_values(by=["score"], ascending=False)
-
-season_predictions_df["score"] = ((season_predictions_df["score"] - y_mean + 25) / 50) * 100
+y_std = np.std(y)
+season_predictions_df["score"] = ((season_predictions_df["score"] - np.mean(y) + y_std) / (2 * y_std)) * 100
 season_predictions_df = season_predictions_df[season_predictions_df["community"] >= 65]
 season_predictions_df["score"] = season_predictions_df["score"].apply(lambda x: x if x <= 100.0 else 100.0)
 season_predictions_df["score"] = season_predictions_df["score"].apply(lambda x: x if x >= 0.0 else 0.0)
